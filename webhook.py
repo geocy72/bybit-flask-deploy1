@@ -114,7 +114,7 @@ def webhook():
                 order_type="Limit",
                 qty=qty,
                 price=tp,
-                time_in_force="GoodTillCancel",
+                time_in_force="PostOnly",
                 reduce_only=True
             )
             log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
@@ -127,7 +127,7 @@ def webhook():
                 order_type="Market",
                 qty=qty,
                 stop_loss=sl,
-                time_in_force="GoodTillCancel",
+                time_in_force="PostOnly",
                 reduce_only=True
             )
             log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
