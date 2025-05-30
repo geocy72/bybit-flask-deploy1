@@ -14,7 +14,7 @@ BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "FzvPkH7tPuyDDZs0c7AAAskl1srtTv
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 TRAILING_PERCENT = 2.0
-TRIGGER_PERCENT = 1.0
+TRIGGER_PERCENT = 2.0
 log_buffer = []
 
 def get_step_size(symbol):
@@ -80,8 +80,8 @@ def webhook():
         side = "Buy" if action == "buy" else "Sell"
         order_type = data.get("type", "market").capitalize()
         raw_qty = float(data.get("qty", 25))
-        tp = float(data.get("tp")) if "tp" in data else None
-        sl = float(data.get("sl")) if "sl" in data else None
+        tp_price = float(data.get("tp", 0))
+        sl_price = float(data.get("sl", 0))
 
         step = get_step_size(symbol)
         qty = round_qty_to_step(raw_qty, step)
@@ -95,6 +95,7 @@ def webhook():
             thread.start()
             return jsonify({"status": "trailing_started"}), 200
 
+        # Primary Market Order
         order_response = session.place_order(
             category="linear",
             symbol=symbol,
@@ -105,33 +106,34 @@ def webhook():
         )
         log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
 
-        if tp:
-            tp_side = "Sell" if side == "Buy" else "Buy"
-            tp_order = session.place_order(
-                category="linear",
-                symbol=symbol,
-                side=tp_side,
-                order_type="Limit",
-                qty=qty,
-                price=tp,
-                time_in_force="PostOnly",
-                reduce_only=True
-            )
-            log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
-        if sl:
-            sl_side = "Sell" if side == "Buy" else "Buy"
-            sl_order = session.place_order(
-                category="linear",
-                symbol=symbol,
-                side=sl_side,
-                order_type="Market",
-                qty=qty,
-                stop_loss=sl,
-                time_in_force="GoodTillCancel",
-                reduce_only=True
-            )
-            log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
+        # Take Profit (Limit Order)
+        tp_response = session.place_order(
+            category="linear",
+            symbol=symbol,
+            side="Sell" if side == "Buy" else "Buy",
+            order_type="Limit",
+            qty=qty,
+            price=str(tp_price),
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
+        log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_response}")
 
+        # Stop Loss (Separate StopMarket Order)
+        sl_response = session.place_order(
+            category="linear",
+            symbol=symbol,
+            side="Sell" if side == "Buy" else "Buy",
+            order_type="StopMarket",
+            qty=qty,
+            trigger_price=sl_price,
+            trigger_by="LastPrice",
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
+        log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_response}")
+
+        # Start trailing monitoring
         ticker = session.get_tickers(category="linear", symbol=symbol)
         entry_price = float(ticker["result"]["list"][0]["lastPrice"])
         thread = threading.Thread(target=monitor_price_and_set_trailing_stop, args=(symbol, entry_price, side, qty))
@@ -142,3 +144,6 @@ def webhook():
     except Exception as e:
         log_buffer.append(f"[{timestamp}] ERROR: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 400
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=5000)
