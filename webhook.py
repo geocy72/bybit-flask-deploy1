@@ -8,8 +8,8 @@ import os
 
 app = Flask(__name__)
 
-BYBIT_API_KEY = os.getenv("BYBIT_API_KEY", "REPLACE_THIS")
-BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "REPLACE_THIS")
+BYBIT_API_KEY = os.getenv("BYBIT_API_KEY", "ZRyWx3GREmB9LQET4u")
+BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "FzvPkH7tPuyDDZs0c7AAAskl1srtTvD4l8In")
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
