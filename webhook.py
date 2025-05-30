@@ -127,7 +127,7 @@ def webhook():
                 order_type="Market",
                 qty=qty,
                 stop_loss=sl,
-                time_in_force="PostOnly",
+                time_in_force="GoodTillCancel",
                 reduce_only=True
             )
             log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
