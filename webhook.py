@@ -80,6 +80,8 @@ def webhook():
         side = "Buy" if action == "buy" else "Sell"
         order_type = data.get("type", "market").capitalize()
         raw_qty = float(data.get("qty", 25))
+        tp = float(data.get("tp")) if "tp" in data else None
+        sl = float(data.get("sl")) if "sl" in data else None
 
         step = get_step_size(symbol)
         qty = round_qty_to_step(raw_qty, step)
@@ -102,6 +104,33 @@ def webhook():
             time_in_force="GoodTillCancel"
         )
         log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
+
+        if tp:
+            tp_side = "Sell" if side == "Buy" else "Buy"
+            tp_order = session.place_order(
+                category="linear",
+                symbol=symbol,
+                side=tp_side,
+                order_type="Limit",
+                qty=qty,
+                price=tp,
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
+            log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
+        if sl:
+            sl_side = "Sell" if side == "Buy" else "Buy"
+            sl_order = session.place_order(
+                category="linear",
+                symbol=symbol,
+                side=sl_side,
+                order_type="Market",
+                qty=qty,
+                stop_loss=sl,
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
+            log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
 
         ticker = session.get_tickers(category="linear", symbol=symbol)
         entry_price = float(ticker["result"]["list"][0]["lastPrice"])
