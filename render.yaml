@@ -1,7 +1,6 @@
 services:
   - type: web
-    name: bybit-bot
+    name: bybit-flask-deploy1
     env: python
     buildCommand: ""
     startCommand: gunicorn webhook:app
-
