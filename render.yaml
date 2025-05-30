@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: bybit-bot
+    env: python
+    buildCommand: ""
+    startCommand: gunicorn webhook:app
