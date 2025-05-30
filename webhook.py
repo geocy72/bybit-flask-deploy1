@@ -22,7 +22,7 @@ def get_step_size(symbol):
         info = session.get_instruments_info(category="linear", symbol=symbol)
         return float(info['result']['list'][0]['lotSizeFilter']['qtyStep'])
     except Exception as e:
-        log_buffer.append(f"[StepSize ERROR] {{str(e)}}")
+        log_buffer.append(f"[StepSize ERROR] {str(e)}")
         return 0.01
 
 def round_qty_to_step(qty, step):
@@ -31,13 +31,13 @@ def round_qty_to_step(qty, step):
 def monitor_price_and_set_trailing_stop(symbol, entry_price, side, qty):
     target_price = entry_price * (1 + TRIGGER_PERCENT / 100)
     trailing_side = "Sell" if side == "Buy" else "Buy"
-    log_buffer.append(f"[Trailing] Monitoring {{symbol}}, Entry: {{entry_price}}, Target: {{target_price}}, Side: {{side}}")
+    log_buffer.append(f"[Trailing] Monitoring {symbol}, Entry: {entry_price}, Target: {target_price}, Side: {side}")
 
     while True:
         try:
             ticker = session.get_tickers(category="linear", symbol=symbol)
             last_price = float(ticker["result"]["list"][0]["lastPrice"])
-            log_buffer.append(f"[Trailing] Last Price: {{last_price}}")
+            log_buffer.append(f"[Trailing] Last Price: {last_price}")
 
             if (side == "Buy" and last_price >= target_price) or (side == "Sell" and last_price <= entry_price * (1 - TRIGGER_PERCENT / 100)):
                 response = session.place_order(
@@ -52,10 +52,10 @@ def monitor_price_and_set_trailing_stop(symbol, entry_price, side, qty):
                     trailing_stop=str(TRAILING_PERCENT)
                 )
                 timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-                log_buffer.append(f"[{{timestamp}}] TRAILING STOP ACTIVATED: {{response}}")
+                log_buffer.append(f"[{timestamp}] TRAILING STOP ACTIVATED: {response}")
                 break
         except Exception as e:
-            log_buffer.append(f"[Monitor ERROR] {{str(e)}}")
+            log_buffer.append(f"[Monitor ERROR] {str(e)}")
             break
 
         time.sleep(5)
@@ -73,7 +73,7 @@ def webhook():
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     try:
         data = request.get_json(force=True)
-        log_buffer.append(f"[{{timestamp}}] ALERT RECEIVED: {{data}}")
+        log_buffer.append(f"[{timestamp}] ALERT RECEIVED: {data}")
 
         action = data.get("action")
         symbol = data.get("symbol")
@@ -101,7 +101,7 @@ def webhook():
             qty=qty,
             time_in_force="GoodTillCancel"
         )
-        log_buffer.append(f"[{{timestamp}}] PRIMARY ORDER RESPONSE: {{order_response}}")
+        log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
 
         ticker = session.get_tickers(category="linear", symbol=symbol)
         entry_price = float(ticker["result"]["list"][0]["lastPrice"])
@@ -111,5 +111,5 @@ def webhook():
         return jsonify({"status": "ok", "order": order_response}), 200
 
     except Exception as e:
-        log_buffer.append(f"[{{timestamp}}] ERROR: {{str(e)}}")
-        return jsonify({"status": "error", "message": str(e)}}), 400
+        log_buffer.append(f"[{timestamp}] ERROR: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
