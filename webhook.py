@@ -106,7 +106,7 @@ def webhook():
         )
         log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
 
-        # Take Profit (Limit Order)
+        # Take Profit (Limit Order with PostOnly)
         tp_response = session.place_order(
             category="linear",
             symbol=symbol,
@@ -114,7 +114,7 @@ def webhook():
             order_type="Limit",
             qty=qty,
             price=str(tp_price),
-            time_in_force="GoodTillCancel",
+            time_in_force="PostOnly",
             reduce_only=True
         )
         log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_response}")
