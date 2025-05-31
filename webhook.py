@@ -14,7 +14,7 @@ BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "FzvPkH7tPuyDDZs0c7AAAskl1srtTv
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 TRAILING_PERCENT = 2.0
-TRIGGER_PERCENT = 2.0
+TRIGGER_PERCENT = 1.0
 log_buffer = []
 
 def get_step_size(symbol):
@@ -80,22 +80,31 @@ def webhook():
         side = "Buy" if action == "buy" else "Sell"
         order_type = data.get("type", "market").capitalize()
         raw_qty = float(data.get("qty", 25))
-        tp_price = float(data.get("tp", 0))
-        sl_price = float(data.get("sl", 0))
+
+        tp = float(data.get("tp", 0))
+        sl = float(data.get("sl", 0))
 
         step = get_step_size(symbol)
         qty = round_qty_to_step(raw_qty, step)
 
+        # === Skip duplicate entry if position already exists ===
+        position = session.get_positions(category="linear", symbol=symbol)
+        size = float(position['result']['list'][0]['size'])
+        side_in_position = position['result']['list'][0]['side']
+
+        if (action == "buy" and size > 0 and side_in_position == "Buy") or            (action == "sell" and size > 0 and side_in_position == "Sell"):
+            log_buffer.append(f"[{timestamp}] SKIPPED: Position already open in same direction ({side_in_position})")
+            return jsonify({"status": "skipped", "reason": "Position already open"}), 200
+
         if action == "activate_trailing":
             ticker = session.get_tickers(category="linear", symbol=symbol)
             last_price = float(ticker["result"]["list"][0]["lastPrice"])
-            position = session.get_positions(category="linear", symbol=symbol)
             side = "Buy" if float(position['result']['list'][0]['size']) < 0 else "Sell"
             thread = threading.Thread(target=monitor_price_and_set_trailing_stop, args=(symbol, last_price, side, qty))
             thread.start()
             return jsonify({"status": "trailing_started"}), 200
 
-        # Primary Market Order
+        # === Place market order ===
         order_response = session.place_order(
             category="linear",
             symbol=symbol,
@@ -106,38 +115,33 @@ def webhook():
         )
         log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
 
-        # Take Profit (Limit Order with PostOnly)
-        tp_response = session.place_order(
-            category="linear",
-            symbol=symbol,
-            side="Sell" if side == "Buy" else "Buy",
-            order_type="Limit",
-            qty=qty,
-            price=str(tp_price),
-            time_in_force="PostOnly",
-            reduce_only=True
-        )
-        log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_response}")
+        # === TP & SL if provided ===
+        if tp > 0:
+            tp_order = session.place_order(
+                category="linear",
+                symbol=symbol,
+                side="Sell" if side == "Buy" else "Buy",
+                order_type="Limit",
+                qty=qty,
+                price=round(tp, 3),
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
+            log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
 
-        # Stop Loss (Separate StopMarket Order)
-        sl_response = session.place_order(
-            category="linear",
-            symbol=symbol,
-            side="Sell" if side == "Buy" else "Buy",
-            order_type="StopMarket",
-            qty=qty,
-            trigger_price=sl_price,
-            trigger_by="LastPrice",
-            time_in_force="GoodTillCancel",
-            reduce_only=True
-        )
-        log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_response}")
-
-        # Start trailing monitoring
-        ticker = session.get_tickers(category="linear", symbol=symbol)
-        entry_price = float(ticker["result"]["list"][0]["lastPrice"])
-        thread = threading.Thread(target=monitor_price_and_set_trailing_stop, args=(symbol, entry_price, side, qty))
-        thread.start()
+        if sl > 0:
+            sl_order = session.place_order(
+                category="linear",
+                symbol=symbol,
+                side="Sell" if side == "Buy" else "Buy",
+                order_type="StopMarket",
+                qty=qty,
+                trigger_price=round(sl, 3),
+                trigger_by="LastPrice",
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
+            log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
 
         return jsonify({"status": "ok", "order": order_response}), 200
 
