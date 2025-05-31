@@ -8,6 +8,7 @@ import os
 
 app = Flask(__name__)
 
+# === API KEYS ===
 BYBIT_API_KEY = os.getenv("BYBIT_API_KEY", "ZRyWx3GREmB9LQET4u")
 BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "FzvPkH7tPuyDDZs0c7AAAskl1srtTvD4l8In")
 
@@ -81,30 +82,21 @@ def webhook():
         order_type = data.get("type", "market").capitalize()
         raw_qty = float(data.get("qty", 25))
 
-        tp = float(data.get("tp", 0))
-        sl = float(data.get("sl", 0))
-
         step = get_step_size(symbol)
         qty = round_qty_to_step(raw_qty, step)
-
-        # === Skip duplicate entry if position already exists ===
-        position = session.get_positions(category="linear", symbol=symbol)
-        size = float(position['result']['list'][0]['size'])
-        side_in_position = position['result']['list'][0]['side']
-
-        if (action == "buy" and size > 0 and side_in_position == "Buy") or            (action == "sell" and size > 0 and side_in_position == "Sell"):
-            log_buffer.append(f"[{timestamp}] SKIPPED: Position already open in same direction ({side_in_position})")
-            return jsonify({"status": "skipped", "reason": "Position already open"}), 200
 
         if action == "activate_trailing":
             ticker = session.get_tickers(category="linear", symbol=symbol)
             last_price = float(ticker["result"]["list"][0]["lastPrice"])
+            position = session.get_positions(category="linear", symbol=symbol)
             side = "Buy" if float(position['result']['list'][0]['size']) < 0 else "Sell"
             thread = threading.Thread(target=monitor_price_and_set_trailing_stop, args=(symbol, last_price, side, qty))
             thread.start()
             return jsonify({"status": "trailing_started"}), 200
 
-        # === Place market order ===
+        tp = float(data.get("tp")) if data.get("tp") else None
+        sl = float(data.get("sl")) if data.get("sl") else None
+
         order_response = session.place_order(
             category="linear",
             symbol=symbol,
@@ -115,28 +107,27 @@ def webhook():
         )
         log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
 
-        # === TP & SL if provided ===
-        if tp > 0:
+        if tp:
             tp_order = session.place_order(
                 category="linear",
                 symbol=symbol,
                 side="Sell" if side == "Buy" else "Buy",
                 order_type="Limit",
                 qty=qty,
-                price=round(tp, 3),
+                price=str(tp),
                 time_in_force="GoodTillCancel",
                 reduce_only=True
             )
             log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
 
-        if sl > 0:
+        if sl:
             sl_order = session.place_order(
                 category="linear",
                 symbol=symbol,
                 side="Sell" if side == "Buy" else "Buy",
                 order_type="StopMarket",
                 qty=qty,
-                trigger_price=round(sl, 3),
+                trigger_price=str(sl),
                 trigger_by="LastPrice",
                 time_in_force="GoodTillCancel",
                 reduce_only=True
@@ -150,4 +141,5 @@ def webhook():
         return jsonify({"status": "error", "message": str(e)}), 400
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
