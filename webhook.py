@@ -109,11 +109,13 @@ def place_market_order(side, symbol, qty, price):
         "X-BYBIT-API-KEY": API_KEY,
         "X-BYBIT-TIMESTAMP": req_time,
         "X-BYBIT-SIGN": signature,
+        "X-BYBIT-RECV-WINDOW": "5000",
         "Content-Type": "application/json"
     }
 
     try:
         logging.info(f"[{side.upper()} ORDER] Payload: {payload}")
+        logging.info(f"[{side.upper()} ORDER] Headers: {headers}")
         response = requests.post(endpoint, headers=headers, data=body)
         logging.info(f"[{side.upper()} ORDER] Response: {response.text}")
         return jsonify(response.json()), response.status_code
@@ -133,11 +135,13 @@ def cancel_all_orders(symbol):
         "X-BYBIT-API-KEY": API_KEY,
         "X-BYBIT-TIMESTAMP": req_time,
         "X-BYBIT-SIGN": signature,
+        "X-BYBIT-RECV-WINDOW": "5000",
         "Content-Type": "application/json"
     }
 
     try:
         logging.info("[CANCEL ALL] Sending request")
+        logging.info(f"[CANCEL ALL] Headers: {headers}")
         response = requests.post(endpoint, headers=headers, data=body)
         logging.info(f"[CANCEL ALL] Response: {response.text}")
         return jsonify(response.json()), response.status_code
@@ -171,11 +175,13 @@ def place_trailing_stop(symbol, qty, entry_price):
         "X-BYBIT-API-KEY": API_KEY,
         "X-BYBIT-TIMESTAMP": req_time,
         "X-BYBIT-SIGN": signature,
+        "X-BYBIT-RECV-WINDOW": "5000",
         "Content-Type": "application/json"
     }
 
     try:
         logging.info("[TRAILING STOP] Sending request")
+        logging.info(f"[TRAILING STOP] Headers: {headers}")
         logging.info(f"[TRAILING STOP] Payload: {payload}")
         response = requests.post(endpoint, headers=headers, data=body)
         logging.info(f"[TRAILING STOP] Response: {response.text}")
@@ -184,9 +190,23 @@ def place_trailing_stop(symbol, qty, entry_price):
         logging.error(f"Exception placing trailing stop: {e}")
         return jsonify({"error": str(e)}), 500
 
-# === PRICE MOCK ===
+# === REAL PRICE FETCH ===
 def get_price(symbol):
-    return 4.5  # Replace with real fetch later
+    try:
+        url = f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={symbol}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+
+        if data["retCode"] == 0 and "result" in data and "list" in data["result"]:
+            last_price = float(data["result"]["list"][0]["lastPrice"])
+            logging.info(f"Fetched real price for {symbol}: {last_price}")
+            return last_price
+        else:
+            logging.warning(f"Failed to fetch price for {symbol}, fallback to 4.5. Error: {data.get('retMsg')}")
+            return 4.5
+    except Exception as e:
+        logging.error(f"Exception in get_price(): {e}")
+        return 4.5
 
 if __name__ == "__main__":
     app.run(debug=True)
