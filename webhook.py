@@ -1,142 +1,123 @@
 from flask import Flask, request, jsonify
-from pybit.unified_trading import HTTP
-from datetime import datetime, timedelta
-import threading
-import time
-import math
-import os
+import requests
+import json
+import logging
 
 app = Flask(__name__)
 
-# === API KEYS ===
-BYBIT_API_KEY = os.getenv("BYBIT_API_KEY", "ZRyWx3GREmB9LQET4u")
-BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "FzvPkH7tPuyDDZs0c7AAAskl1srtTvD4l8In")
+# === SETTINGS ===
+API_KEY = "ZRyWx3GREmB9LQET4u"
+API_SECRET = "FzvPkH7tPuyDDZs0c7AAAskl1srtTvD4l8In"
+BASE_URL = "https://api.bybit.com"  # live
+SYMBOL = "SUIUSDT"
+QTY = 40
+TP_MULT = 1.05
+SL_MULT = 0.98
+TRAILING_PERCENT = 2
+TRAILING_TRIGGER = 1
 
-session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+# === LOGGING ===
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
 
-TRAILING_PERCENT = 2.0
-TRIGGER_PERCENT = 1.0
-log_buffer = []
-recent_signals = {}  # Dictionary για αποτροπή διπλών σημάτων
-SIGNAL_TIMEOUT = 60  # Δευτερόλεπτα πριν θεωρηθεί "παλιό" σήμα
+# === ROUTES ===
+@app.route("/", methods=["GET"])
+def home():
+    return "Bot is running."
 
-def get_step_size(symbol):
-    try:
-        info = session.get_instruments_info(category="linear", symbol=symbol)
-        return float(info['result']['list'][0]['lotSizeFilter']['qtyStep'])
-    except Exception as e:
-        log_buffer.append(f"[StepSize ERROR] {str(e)}")
-        return 0.01
-
-def round_qty_to_step(qty, step):
-    return math.floor(qty / step) * step
-
-def monitor_price_and_set_trailing_stop(symbol, entry_price, side, qty):
-    target_price = entry_price * (1 + TRIGGER_PERCENT / 100)
-    trailing_side = "Sell" if side == "Buy" else "Buy"
-    log_buffer.append(f"[Trailing] Monitoring {symbol}, Entry: {entry_price}, Target: {target_price}, Side: {side}")
-
-    while True:
-        try:
-            ticker = session.get_tickers(category="linear", symbol=symbol)
-            last_price = float(ticker["result"]["list"][0]["lastPrice"])
-            log_buffer.append(f"[Trailing] Last Price: {last_price}")
-
-            if (side == "Buy" and last_price >= target_price) or (side == "Sell" and last_price <= entry_price * (1 - TRIGGER_PERCENT / 100)):
-                response = session.place_order(
-                    category="linear",
-                    symbol=symbol,
-                    side=trailing_side,
-                    order_type="TrailingStopMarket",
-                    qty=qty,
-                    time_in_force="GoodTillCancel",
-                    reduce_only=True,
-                    trigger_by="LastPrice",
-                    trailing_stop=str(TRAILING_PERCENT)
-                )
-                timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-                log_buffer.append(f"[{timestamp}] TRAILING STOP ACTIVATED: {response}")
-                break
-        except Exception as e:
-            log_buffer.append(f"[Monitor ERROR] {str(e)}")
-            break
-
-        time.sleep(5)
-
-@app.route('/', methods=['GET'])
-def status():
-    return "✅ Webhook Bot is running!"
-
-@app.route('/logs', methods=['GET'])
-def logs():
-    return "<pre>" + "\n".join(log_buffer[-100:]) + "</pre>"
-
-@app.route('/clear-logs', methods=['GET'])
-def clear_logs():
-    log_buffer.clear()
-    return "🧹 Logs cleared successfully!"
-
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        data = request.get_json(force=True)
-        log_buffer.append(f"[{timestamp}] ALERT RECEIVED: {data}")
-
-        # Δημιουργία μοναδικού κλειδιού για το σήμα
-        signal_key = f"{data.get('symbol')}_{data.get('action')}_{data.get('qty')}"
-        current_time = datetime.utcnow()
-
-        # Έλεγχος αν το σήμα είναι πρόσφατο
-        if signal_key in recent_signals and (current_time - recent_signals[signal_key]) < timedelta(seconds=SIGNAL_TIMEOUT):
-            log_buffer.append(f"[{timestamp}] DUPLICATE SIGNAL IGNORED: {data}")
-            return jsonify({"status": "ignored", "message": "Duplicate signal"}), 200
-
-        # Ενημέρωση του τελευταίου σήματος
-        recent_signals[signal_key] = current_time
-
+        data = request.json
+        logging.info(f"ALERT RECEIVED: {data}")
         action = data.get("action")
-        symbol = data.get("symbol")
-        side = "Buy" if action == "buy" else "Sell"
-        order_type = data.get("type", "market").capitalize()
-        raw_qty = float(data.get("qty", 25))
 
-        step = get_step_size(symbol)
-        qty = round_qty_to_step(raw_qty, step)
+        # Get current price (mocked here — replace with real API call if needed)
+        current_price = get_price(SYMBOL)
 
-        if action == "activate_trailing":
-            ticker = session.get_tickers(category="linear", symbol=symbol)
-            last_price = float(ticker["result"]["list"][0]["lastPrice"])
-            position = session.get_positions(category="linear", symbol=symbol)
-            side = "Buy" if float(position['result']['list'][0]['size']) < 0 else "Sell"
-            thread = threading.Thread(target=monitor_price_and_set_trailing_stop, args=(symbol, last_price, side, qty))
-            thread.start()
-            return jsonify({"status": "trailing_started"}), 200
-
-        tp = float(data.get("tp")) if data.get("tp") else None
-        sl = float(data.get("sl")) if data.get("sl") else None
-
-        # Κύρια εντολή (Market) με Take Profit και Stop Loss
-        order_response = session.place_order(
-            category="linear",
-            symbol=symbol,
-            side=side,
-            order_type="Market" if order_type == "Market" else "Limit",
-            qty=qty,
-            time_in_force="GoodTillCancel" if order_type == "Limit" else None,
-            takeProfit=str(tp) if tp else None,
-            stopLoss=str(sl) if sl else None,
-            tpTriggerBy="LastPrice",
-            slTriggerBy="LastPrice"
-        )
-        log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
-
-        return jsonify({"status": "ok", "order": order_response}), 200
+        if action == "buy":
+            return place_market_order("Buy", SYMBOL, QTY, current_price)
+        elif action == "sell":
+            return place_market_order("Sell", SYMBOL, QTY, current_price)
+        elif action == "cancel_all":
+            return cancel_all_orders(SYMBOL)
+        elif action == "activate_trailing":
+            return place_trailing_stop(SYMBOL, QTY, current_price)
+        else:
+            return "Unknown action", 400
 
     except Exception as e:
-        log_buffer.append(f"[{timestamp}] ERROR: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 400
+        logging.error(f"ERROR: {e}")
+        return "Internal Server Error", 500
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+# === PLACE ORDER ===
+def place_market_order(side, symbol, qty, price):
+    endpoint = f"{BASE_URL}/v5/order/create"
+    tp = price * TP_MULT if side == "Buy" else price * SL_MULT
+    sl = price * SL_MULT if side == "Buy" else price * TP_MULT
+
+    payload = {
+        "category": "linear",
+        "symbol": symbol,
+        "side": side,
+        "order_type": "Market",
+        "qty": str(qty),
+        "take_profit": f"{tp:.4f}",
+        "stop_loss": f"{sl:.4f}",
+        "time_in_force": "GoodTillCancel"
+    }
+
+    headers = {
+        "X-BYBIT-API-KEY": API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    logging.info(f"PRIMARY ORDER PAYLOAD: {payload}")
+    response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
+    logging.info(f"PRIMARY ORDER RESPONSE: {response.json()}")
+    return jsonify(response.json())
+
+# === CANCEL ===
+def cancel_all_orders(symbol):
+    endpoint = f"{BASE_URL}/v5/order/cancel-all"
+    payload = {"category": "linear", "symbol": symbol}
+    headers = {
+        "X-BYBIT-API-KEY": API_KEY,
+        "Content-Type": "application/json"
+    }
+    response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
+    logging.info(f"CANCEL RESPONSE: {response.json()}")
+    return jsonify(response.json())
+
+# === TRAILING STOP ===
+def place_trailing_stop(symbol, qty, entry_price):
+    trigger_price = entry_price * (1 + TRAILING_TRIGGER / 100)
+    endpoint = f"{BASE_URL}/v5/order/create"
+    payload = {
+        "category": "linear",
+        "symbol": symbol,
+        "side": "Sell",
+        "order_type": "Market",
+        "qty": str(qty),
+        "triggerDirection": 1,
+        "triggerPrice": f"{trigger_price:.4f}",
+        "orderFilter": "Order",
+        "tpslMode": "Partial",
+        "trailValue": str(TRAILING_PERCENT),
+        "trailType": "percentage"
+    }
+    headers = {
+        "X-BYBIT-API-KEY": API_KEY,
+        "Content-Type": "application/json"
+    }
+    logging.info(f"TRAILING ORDER PAYLOAD: {payload}")
+    response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
+    logging.info(f"TRAILING ORDER RESPONSE: {response.json()}")
+    return jsonify(response.json())
+
+# === MOCK PRICE ===
+def get_price(symbol):
+    # Replace this with real Bybit ticker fetch if needed
+    return 4.5
+
+if __name__ == "__main__":
+    app.run(debug=True)
