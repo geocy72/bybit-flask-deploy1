@@ -10,11 +10,11 @@ API_KEY = "ZRyWx3GREmB9LQET4u"
 API_SECRET = "FzvPkH7tPuyDDZs0c7AAAskl1srtTvD4l8In"
 BASE_URL = "https://api.bybit.com"
 SYMBOL = "SUIUSDT"
-QTY = 40
-TP_MULT = 1.05
-SL_MULT = 0.98
-TRAILING_PERCENT = 2
-TRAILING_TRIGGER = 1
+QTY = 5
+TP_MULT = 1.20
+SL_MULT = 0.95
+TRAILING_PERCENT = 5
+TRAILING_TRIGGER = 2
 
 # === LOGGING ===
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
