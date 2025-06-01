@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import json
 import logging
+import os
 
 app = Flask(__name__)
 
@@ -10,19 +11,27 @@ API_KEY = "ZRyWx3GREmB9LQET4u"
 API_SECRET = "FzvPkH7tPuyDDZs0c7AAAskl1srtTvD4l8In"
 BASE_URL = "https://api.bybit.com"
 SYMBOL = "SUIUSDT"
-QTY = 5
-TP_MULT = 1.20
-SL_MULT = 0.95
-TRAILING_PERCENT = 5
-TRAILING_TRIGGER = 2
+QTY = 40
+TP_MULT = 1.05
+SL_MULT = 0.98
+TRAILING_PERCENT = 2
+TRAILING_TRIGGER = 1
 
-# === LOGGING ===
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
+# === LOGGING TO FILE ===
+LOG_FILENAME = "webhookbot.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILENAME),
+        logging.StreamHandler()
+    ]
+)
 
 # === ROUTES ===
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot is running."
+    return "Webhook bot is running."
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -30,7 +39,6 @@ def webhook():
         data = request.json
         logging.info(f"ALERT RECEIVED: {json.dumps(data)}")
         action = data.get("action")
-
         current_price = get_price(SYMBOL)
         logging.info(f"Current price for {SYMBOL}: {current_price}")
 
@@ -50,7 +58,19 @@ def webhook():
         logging.error(f"ERROR in /webhook: {str(e)}")
         return "Internal Server Error", 500
 
-# === PLACE MARKET ORDER ===
+@app.route("/logs", methods=["GET"])
+def get_logs():
+    try:
+        if not os.path.exists(LOG_FILENAME):
+            return "No log file found.", 404
+
+        with open(LOG_FILENAME, "r") as f:
+            log_content = f.read()
+        return f"<pre>{log_content}</pre>", 200
+    except Exception as e:
+        return f"Error reading log file: {e}", 500
+
+# === ORDER FUNCTIONS ===
 def place_market_order(side, symbol, qty, price):
     endpoint = f"{BASE_URL}/v5/order/create"
     tp = price * TP_MULT if side == "Buy" else price * SL_MULT
@@ -75,14 +95,12 @@ def place_market_order(side, symbol, qty, price):
     try:
         logging.info(f"[{side.upper()} ORDER] Payload: {payload}")
         response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
-        logging.info(f"[{side.upper()} ORDER] Status: {response.status_code}")
         logging.info(f"[{side.upper()} ORDER] Response: {response.text}")
         return jsonify(response.json()), response.status_code
     except Exception as e:
-        logging.error(f"Exception while placing {side} order: {e}")
+        logging.error(f"Exception placing {side} order: {e}")
         return jsonify({"error": str(e)}), 500
 
-# === CANCEL ALL ORDERS ===
 def cancel_all_orders(symbol):
     endpoint = f"{BASE_URL}/v5/order/cancel-all"
     payload = {"category": "linear", "symbol": symbol}
@@ -92,16 +110,14 @@ def cancel_all_orders(symbol):
     }
 
     try:
-        logging.info(f"[CANCEL ALL] Payload: {payload}")
+        logging.info("[CANCEL ALL] Sending request")
         response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
-        logging.info(f"[CANCEL ALL] Status: {response.status_code}")
         logging.info(f"[CANCEL ALL] Response: {response.text}")
         return jsonify(response.json()), response.status_code
     except Exception as e:
-        logging.error(f"Exception while canceling orders: {e}")
+        logging.error(f"Exception canceling orders: {e}")
         return jsonify({"error": str(e)}), 500
 
-# === TRAILING STOP ORDER ===
 def place_trailing_stop(symbol, qty, entry_price):
     trigger_price = entry_price * (1 + TRAILING_TRIGGER / 100)
     endpoint = f"{BASE_URL}/v5/order/create"
@@ -125,20 +141,19 @@ def place_trailing_stop(symbol, qty, entry_price):
     }
 
     try:
+        logging.info("[TRAILING STOP] Sending request")
         logging.info(f"[TRAILING STOP] Payload: {payload}")
         response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
-        logging.info(f"[TRAILING STOP] Status: {response.status_code}")
         logging.info(f"[TRAILING STOP] Response: {response.text}")
         return jsonify(response.json()), response.status_code
     except Exception as e:
-        logging.error(f"Exception while placing trailing stop: {e}")
+        logging.error(f"Exception placing trailing stop: {e}")
         return jsonify({"error": str(e)}), 500
 
-# === GET MOCK PRICE ===
+# === MOCK PRICE ===
 def get_price(symbol):
-    # FIXME: Replace with real ticker fetch via Bybit /v5/market/tickers if needed
+    # Replace with real ticker logic if needed
     return 4.5
 
-# === RUN ===
 if __name__ == "__main__":
     app.run(debug=True)
