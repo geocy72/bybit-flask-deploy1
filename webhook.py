@@ -83,7 +83,7 @@ def webhook():
         data = request.get_json(force=True)
         log_buffer.append(f"[{timestamp}] ALERT RECEIVED: {data}")
 
-        # Δημιουργία μοναδικού κλειδιού για το σήμα (symbol + action + qty)
+        # Δημιουργία μοναδικού κλειδιού για το σήμα
         signal_key = f"{data.get('symbol')}_{data.get('action')}_{data.get('qty')}"
         current_time = datetime.utcnow()
 
@@ -116,39 +116,40 @@ def webhook():
         tp = float(data.get("tp")) if data.get("tp") else None
         sl = float(data.get("sl")) if data.get("sl") else None
 
+        # Κύρια εντολή (Market)
         order_response = session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
-            order_type=order_type,
+            order_type="Market" if order_type == "Market" else "Limit",
             qty=qty,
-            time_in_force="GoodTillCancel"
+            time_in_force="GoodTillCancel" if order_type == "Limit" else None
         )
         log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
 
+        # Take Profit (Limit Order)
         if tp:
             tp_order = session.place_order(
                 category="linear",
                 symbol=symbol,
-                side="Sell" if side == "Buy" else "Buy",
+                side="Sell" if side == "Buy" else "Buy",  # Αντίθετη πλευρά
                 order_type="Limit",
                 qty=qty,
                 price=str(tp),
-                time_in_force="GoodTillCancel",
                 reduce_only=True
             )
             log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
 
+        # Stop Loss (StopMarket Order)
         if sl:
             sl_order = session.place_order(
                 category="linear",
                 symbol=symbol,
-                side="Sell" if side == "Buy" else "Buy",
+                side="Sell" if side == "Buy" else "Buy",  # Αντίθετη πλευρά
                 order_type="StopMarket",
                 qty=qty,
                 trigger_price=str(sl),
                 trigger_by="LastPrice",
-                time_in_force="GoodTillCancel",
                 reduce_only=True
             )
             log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
