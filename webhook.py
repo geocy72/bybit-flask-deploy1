@@ -30,6 +30,17 @@ logging.basicConfig(
     ]
 )
 
+# === EXECUTION COOLING ===
+last_execution = {}
+
+def is_allowed(symbol, action):
+    now = time.time()
+    key = f"{symbol}_{action}"
+    if key not in last_execution or now - last_execution[key] > 10:
+        last_execution[key] = now
+        return True
+    return False
+
 # === HMAC SIGNATURE ===
 def generate_signature(api_key, api_secret, req_time, body=""):
     param_str = f"{api_key}{req_time}{body}"
@@ -64,8 +75,12 @@ def webhook():
         action = data.get("action")
         symbol = data.get("symbol", "SUIUSDT")
         qty = data.get("qty", QTY)
-        current_price = get_price(symbol)
 
+        if not is_allowed(symbol, action):
+            logging.warning(f"Ignored duplicate alert: {action} for {symbol}")
+            return jsonify({"status": "ignored_duplicate"}), 200
+
+        current_price = get_price(symbol)
         logging.info(f"Current price for {symbol}: {current_price}")
 
         if action == "buy":
@@ -115,7 +130,6 @@ def place_market_order(side, symbol, qty, price):
 
     try:
         logging.info(f"[{side.upper()} ORDER] Payload: {payload}")
-        logging.info(f"[{side.upper()} ORDER] Headers: {headers}")
         response = requests.post(endpoint, headers=headers, data=body)
         logging.info(f"[{side.upper()} ORDER] Response: {response.text}")
         return jsonify(response.json()), response.status_code
@@ -141,7 +155,6 @@ def cancel_all_orders(symbol):
 
     try:
         logging.info("[CANCEL ALL] Sending request")
-        logging.info(f"[CANCEL ALL] Headers: {headers}")
         response = requests.post(endpoint, headers=headers, data=body)
         logging.info(f"[CANCEL ALL] Response: {response.text}")
         return jsonify(response.json()), response.status_code
@@ -181,8 +194,6 @@ def place_trailing_stop(symbol, qty, entry_price):
 
     try:
         logging.info("[TRAILING STOP] Sending request")
-        logging.info(f"[TRAILING STOP] Headers: {headers}")
-        logging.info(f"[TRAILING STOP] Payload: {payload}")
         response = requests.post(endpoint, headers=headers, data=body)
         logging.info(f"[TRAILING STOP] Response: {response.text}")
         return jsonify(response.json()), response.status_code
@@ -196,7 +207,6 @@ def get_price(symbol):
         url = f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={symbol}"
         response = requests.get(url, timeout=5)
         data = response.json()
-
         if data["retCode"] == 0 and "result" in data and "list" in data["result"]:
             last_price = float(data["result"]["list"][0]["lastPrice"])
             logging.info(f"Fetched real price for {symbol}: {last_price}")
