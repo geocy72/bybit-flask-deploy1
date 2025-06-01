@@ -150,6 +150,7 @@ def webhook():
                 qty=qty,
                 trigger_price=str(sl),
                 trigger_by="LastPrice",
+                triggerDirection=2 if side == "Buy" else 1,  # 2: κάτω για Buy (long), 1: πάνω για Sell (short)
                 reduce_only=True
             )
             log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
