@@ -68,6 +68,12 @@ def status():
 @app.route('/logs', methods=['GET'])
 def logs():
     return "<pre>" + "\n".join(log_buffer[-100:]) + "</pre>"
+    
+@app.route('/clear-logs', methods=['GET'])
+def clear_logs():
+    log_buffer.clear()
+    return "🧹 Logs cleared successfully!"
+  
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
