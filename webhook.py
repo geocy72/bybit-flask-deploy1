@@ -135,8 +135,7 @@ def webhook():
                 side="Sell" if side == "Buy" else "Buy",  # Αντίθετη πλευρά
                 order_type="Limit",
                 qty=qty,
-                price=str(tp),
-                reduce_only=True
+                price=str(tp)
             )
             log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
 
@@ -150,8 +149,7 @@ def webhook():
                 qty=qty,
                 trigger_price=str(sl),
                 trigger_by="LastPrice",
-                triggerDirection=2 if side == "Buy" else 1,  # 2: κάτω για Buy (long), 1: πάνω για Sell (short)
-                reduce_only=True
+                triggerDirection=2 if side == "Buy" else 1,  # 2: κάτω για Buy, 1: πάνω για Sell
             )
             log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
 
