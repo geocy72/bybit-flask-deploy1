@@ -8,7 +8,7 @@ app = Flask(__name__)
 # === SETTINGS ===
 API_KEY = "ZRyWx3GREmB9LQET4u"
 API_SECRET = "FzvPkH7tPuyDDZs0c7AAAskl1srtTvD4l8In"
-BASE_URL = "https://api.bybit.com"  # live
+BASE_URL = "https://api.bybit.com"
 SYMBOL = "SUIUSDT"
 QTY = 40
 TP_MULT = 1.05
@@ -17,7 +17,7 @@ TRAILING_PERCENT = 2
 TRAILING_TRIGGER = 1
 
 # === LOGGING ===
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 
 # === ROUTES ===
 @app.route("/", methods=["GET"])
@@ -28,11 +28,11 @@ def home():
 def webhook():
     try:
         data = request.json
-        logging.info(f"ALERT RECEIVED: {data}")
+        logging.info(f"ALERT RECEIVED: {json.dumps(data)}")
         action = data.get("action")
 
-        # Get current price (mocked here — replace with real API call if needed)
         current_price = get_price(SYMBOL)
+        logging.info(f"Current price for {SYMBOL}: {current_price}")
 
         if action == "buy":
             return place_market_order("Buy", SYMBOL, QTY, current_price)
@@ -43,13 +43,14 @@ def webhook():
         elif action == "activate_trailing":
             return place_trailing_stop(SYMBOL, QTY, current_price)
         else:
+            logging.warning(f"Unknown action: {action}")
             return "Unknown action", 400
 
     except Exception as e:
-        logging.error(f"ERROR: {e}")
+        logging.error(f"ERROR in /webhook: {str(e)}")
         return "Internal Server Error", 500
 
-# === PLACE ORDER ===
+# === PLACE MARKET ORDER ===
 def place_market_order(side, symbol, qty, price):
     endpoint = f"{BASE_URL}/v5/order/create"
     tp = price * TP_MULT if side == "Buy" else price * SL_MULT
@@ -71,12 +72,17 @@ def place_market_order(side, symbol, qty, price):
         "Content-Type": "application/json"
     }
 
-    logging.info(f"PRIMARY ORDER PAYLOAD: {payload}")
-    response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
-    logging.info(f"PRIMARY ORDER RESPONSE: {response.json()}")
-    return jsonify(response.json())
+    try:
+        logging.info(f"[{side.upper()} ORDER] Payload: {payload}")
+        response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
+        logging.info(f"[{side.upper()} ORDER] Status: {response.status_code}")
+        logging.info(f"[{side.upper()} ORDER] Response: {response.text}")
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        logging.error(f"Exception while placing {side} order: {e}")
+        return jsonify({"error": str(e)}), 500
 
-# === CANCEL ===
+# === CANCEL ALL ORDERS ===
 def cancel_all_orders(symbol):
     endpoint = f"{BASE_URL}/v5/order/cancel-all"
     payload = {"category": "linear", "symbol": symbol}
@@ -84,11 +90,18 @@ def cancel_all_orders(symbol):
         "X-BYBIT-API-KEY": API_KEY,
         "Content-Type": "application/json"
     }
-    response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
-    logging.info(f"CANCEL RESPONSE: {response.json()}")
-    return jsonify(response.json())
 
-# === TRAILING STOP ===
+    try:
+        logging.info(f"[CANCEL ALL] Payload: {payload}")
+        response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
+        logging.info(f"[CANCEL ALL] Status: {response.status_code}")
+        logging.info(f"[CANCEL ALL] Response: {response.text}")
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        logging.error(f"Exception while canceling orders: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# === TRAILING STOP ORDER ===
 def place_trailing_stop(symbol, qty, entry_price):
     trigger_price = entry_price * (1 + TRAILING_TRIGGER / 100)
     endpoint = f"{BASE_URL}/v5/order/create"
@@ -105,19 +118,27 @@ def place_trailing_stop(symbol, qty, entry_price):
         "trailValue": str(TRAILING_PERCENT),
         "trailType": "percentage"
     }
+
     headers = {
         "X-BYBIT-API-KEY": API_KEY,
         "Content-Type": "application/json"
     }
-    logging.info(f"TRAILING ORDER PAYLOAD: {payload}")
-    response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
-    logging.info(f"TRAILING ORDER RESPONSE: {response.json()}")
-    return jsonify(response.json())
 
-# === MOCK PRICE ===
+    try:
+        logging.info(f"[TRAILING STOP] Payload: {payload}")
+        response = requests.post(endpoint, headers=headers, data=json.dumps(payload))
+        logging.info(f"[TRAILING STOP] Status: {response.status_code}")
+        logging.info(f"[TRAILING STOP] Response: {response.text}")
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        logging.error(f"Exception while placing trailing stop: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# === GET MOCK PRICE ===
 def get_price(symbol):
-    # Replace this with real Bybit ticker fetch if needed
+    # FIXME: Replace with real ticker fetch via Bybit /v5/market/tickers if needed
     return 4.5
 
+# === RUN ===
 if __name__ == "__main__":
     app.run(debug=True)
