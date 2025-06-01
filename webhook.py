@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from pybit.unified_trading import HTTP
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
 import time
 import math
@@ -17,6 +17,8 @@ session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET
 TRAILING_PERCENT = 2.0
 TRIGGER_PERCENT = 1.0
 log_buffer = []
+recent_signals = {}  # Dictionary για αποτροπή διπλών σημάτων
+SIGNAL_TIMEOUT = 60  # Δευτερόλεπτα πριν θεωρηθεί "παλιό" σήμα
 
 def get_step_size(symbol):
     try:
@@ -68,12 +70,11 @@ def status():
 @app.route('/logs', methods=['GET'])
 def logs():
     return "<pre>" + "\n".join(log_buffer[-100:]) + "</pre>"
-    
+
 @app.route('/clear-logs', methods=['GET'])
 def clear_logs():
     log_buffer.clear()
     return "🧹 Logs cleared successfully!"
-  
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -81,6 +82,18 @@ def webhook():
     try:
         data = request.get_json(force=True)
         log_buffer.append(f"[{timestamp}] ALERT RECEIVED: {data}")
+
+        # Δημιουργία μοναδικού κλειδιού για το σήμα (symbol + action + qty)
+        signal_key = f"{data.get('symbol')}_{data.get('action')}_{data.get('qty')}"
+        current_time = datetime.utcnow()
+
+        # Έλεγχος αν το σήμα είναι πρόσφατο
+        if signal_key in recent_signals and (current_time - recent_signals[signal_key]) < timedelta(seconds=SIGNAL_TIMEOUT):
+            log_buffer.append(f"[{timestamp}] DUPLICATE SIGNAL IGNORED: {data}")
+            return jsonify({"status": "ignored", "message": "Duplicate signal"}), 200
+
+        # Ενημέρωση του τελευταίου σήματος
+        recent_signals[signal_key] = current_time
 
         action = data.get("action")
         symbol = data.get("symbol")
