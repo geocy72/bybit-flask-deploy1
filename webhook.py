@@ -116,42 +116,20 @@ def webhook():
         tp = float(data.get("tp")) if data.get("tp") else None
         sl = float(data.get("sl")) if data.get("sl") else None
 
-        # Κύρια εντολή (Market)
+        # Κύρια εντολή (Market) με Take Profit και Stop Loss
         order_response = session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             order_type="Market" if order_type == "Market" else "Limit",
             qty=qty,
-            time_in_force="GoodTillCancel" if order_type == "Limit" else None
+            time_in_force="GoodTillCancel" if order_type == "Limit" else None,
+            takeProfit=str(tp) if tp else None,
+            stopLoss=str(sl) if sl else None,
+            tpTriggerBy="LastPrice",
+            slTriggerBy="LastPrice"
         )
         log_buffer.append(f"[{timestamp}] PRIMARY ORDER RESPONSE: {order_response}")
-
-        # Take Profit (Limit Order)
-        if tp:
-            tp_order = session.place_order(
-                category="linear",
-                symbol=symbol,
-                side="Sell" if side == "Buy" else "Buy",  # Αντίθετη πλευρά
-                order_type="Limit",
-                qty=qty,
-                price=str(tp)
-            )
-            log_buffer.append(f"[{timestamp}] TAKE PROFIT ORDER: {tp_order}")
-
-        # Stop Loss (StopMarket Order)
-        if sl:
-            sl_order = session.place_order(
-                category="linear",
-                symbol=symbol,
-                side="Sell" if side == "Buy" else "Buy",  # Αντίθετη πλευρά
-                order_type="StopMarket",
-                qty=qty,
-                trigger_price=str(sl),
-                trigger_by="LastPrice",
-                triggerDirection=2 if side == "Buy" else 1,  # 2: κάτω για Buy, 1: πάνω για Sell
-            )
-            log_buffer.append(f"[{timestamp}] STOP LOSS ORDER: {sl_order}")
 
         return jsonify({"status": "ok", "order": order_response}), 200
 
